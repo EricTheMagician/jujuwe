@@ -1,9 +1,8 @@
 use jj_lib::backend::CommitId;
 use jj_lib::object_id::ObjectId;
-use jj_lib::ref_name::RefName;
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, Workspace, WorkspaceLoadError};
-use jj_lib::repo::StoreFactories;
+use jj_lib::repo::{StoreFactories, Repo};
 use serde::Serialize;
 use std::path::Path;
 use thiserror::Error;
@@ -61,6 +60,15 @@ pub struct BranchInfo {
     pub commit_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitInfo {
+    pub change_id: String,
+    pub commit_id: String,
+    pub description: String,
+    pub author: String,
+    pub timestamp: i64,
+}
+
 pub fn list_virtual_branches(workspace: &Workspace) -> Vec<BranchInfo> {
     // Use pollster to run async code synchronously
     let repo = pollster::block_on(async {
@@ -84,6 +92,65 @@ pub fn list_virtual_branches(workspace: &Workspace) -> Vec<BranchInfo> {
     
     branches.sort_by(|a, b| a.name.cmp(&b.name));
     branches
+}
+
+/// Get commit history from the repository
+pub fn get_commit_history(workspace: &Workspace, limit: usize) -> JjResult<Vec<CommitInfo>> {
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let view = repo.view();
+    let store = repo.store();
+    
+    // Get the visible heads
+    let heads = view.heads();
+    
+    // Build commit info from heads and their ancestors
+    let mut commits: Vec<CommitInfo> = Vec::new();
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    
+    // Simple BFS to get ancestors of heads
+    let mut queue: Vec<CommitId> = heads.iter().cloned().collect();
+    
+    while let Some(commit_id) = queue.pop() {
+        let hex_id = commit_id.hex();
+        if visited.contains(&hex_id) {
+            continue;
+        }
+        visited.insert(hex_id.clone());
+        
+        // Get commit info
+        if let Ok(commit) = store.get_commit(&commit_id) {
+            let description = commit.description().to_string();
+            let author = commit.author().name.clone();
+            let timestamp = commit.committer().timestamp.timestamp.0;
+            
+            commits.push(CommitInfo {
+                change_id: commit.change_id().hex(),
+                commit_id: hex_id,
+                description: if description.is_empty() { "(empty)".to_string() } else { description },
+                author,
+                timestamp,
+            });
+            
+            // Add parents to queue
+            for parent_id in commit.parent_ids() {
+                queue.push(parent_id.clone());
+            }
+        }
+        
+        if commits.len() >= limit {
+            break;
+        }
+    }
+    
+    // Sort by timestamp descending (newest first)
+    commits.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    commits.truncate(limit);
+    
+    Ok(commits)
 }
 
 /// Create a new virtual branch (bookmark) at the current working copy commit
