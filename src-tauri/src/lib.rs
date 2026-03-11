@@ -1,6 +1,6 @@
 mod jj_ops;
 
-use jj_ops::{JjError, BranchInfo, CommitInfo, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit};
+use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit};
 use std::path::PathBuf;
 use tauri::command;
 
@@ -62,6 +62,18 @@ fn create_commit_cmd(path: String, message: String) -> Result<CommitInfo, String
     create_commit(&workspace_path, message).map_err(|e: JjError| e.to_string())
 }
 
+#[command]
+fn amend_commit_cmd(path: String, message: String) -> Result<CommitInfo, String> {
+    let workspace_path = PathBuf::from(&path);
+    amend_commit(&workspace_path, message).map_err(|e: JjError| e.to_string())
+}
+
+#[command]
+fn get_diff(path: String) -> Result<DiffInfo, String> {
+    let workspace_path = PathBuf::from(&path);
+    get_working_copy_diff(&workspace_path).map_err(|e: JjError| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -74,7 +86,9 @@ pub fn run() {
             create_branch,
             get_commits,
             uncommit_cmd,
-            create_commit_cmd
+            create_commit_cmd,
+            amend_commit_cmd,
+            get_diff
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

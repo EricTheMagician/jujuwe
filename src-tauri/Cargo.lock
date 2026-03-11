@@ -2873,6 +2873,9 @@ dependencies = [
 name = "jujuwe"
 version = "0.1.0"
 dependencies = [
+ "futures 0.3.32",
+ "futures-lite",
+ "futures-util",
  "jj-lib",
  "pollster",
  "serde",

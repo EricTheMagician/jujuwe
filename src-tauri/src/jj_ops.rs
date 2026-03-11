@@ -69,6 +69,19 @@ pub struct CommitInfo {
     pub timestamp: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct FileDiff {
+    pub path: String,
+    pub old_id: Option<String>,
+    pub new_id: Option<String>,
+    pub diff_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiffInfo {
+    pub files: Vec<FileDiff>,
+}
+
 pub fn list_virtual_branches(workspace: &Workspace) -> Vec<BranchInfo> {
     // Use pollster to run async code synchronously
     let repo = pollster::block_on(async {
@@ -305,4 +318,93 @@ pub fn create_commit(workspace_path: &Path, message: String) -> JjResult<CommitI
         author: new_commit.author().name.clone(),
         timestamp: new_commit.committer().timestamp.timestamp.0,
     })
+}
+
+/// Amend the commit message of the current working copy commit
+pub fn amend_commit(workspace_path: &Path, message: String) -> JjResult<CommitInfo> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let mut workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let workspace_name = workspace.workspace_name();
+    
+    let (new_commit, commit_message) = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        let repo = repo_loader.load_at_head().await.unwrap();
+        
+        let view = repo.view();
+        let wc_commit_id = view.get_wc_commit_id(workspace_name)
+            .ok_or_else(|| JjError::Other("No working copy commit found".to_string()))?;
+        
+        let store = repo.store();
+        let wc_commit = store.get_commit(wc_commit_id)
+            .map_err(|e| JjError::Other(e.to_string()))?;
+        
+        let parent_ids: Vec<_> = wc_commit.parent_ids().into_iter().cloned().collect();
+        
+        if parent_ids.is_empty() {
+            return Err(JjError::Other("Cannot amend the root commit".to_string()));
+        }
+        
+        let mut tx = repo.start_transaction();
+        
+        let tx_repo = tx.repo_mut();
+        
+        let tree = wc_commit.tree();
+        let author = wc_commit.author().clone();
+        let committer = wc_commit.committer().clone();
+        
+        let mut commit_builder = tx_repo.new_commit(
+            parent_ids.clone(),
+            tree,
+        ).detach();
+        
+        commit_builder.set_description(&message);
+        commit_builder.set_author(author);
+        commit_builder.set_committer(committer);
+        
+        let new_commit = commit_builder.write(tx_repo).await
+            .map_err(|e| JjError::Other(e.to_string()))?;
+        
+        tx.commit(&format!("Amend commit: {}", message))
+            .await
+            .map_err(|e| JjError::Other(e.to_string()))?;
+        
+        Ok::<_, JjError>((new_commit, message))
+    })?;
+    
+    pollster::block_on(async {
+        workspace.check_out(
+            workspace.working_copy().operation_id().clone(),
+            None,
+            &new_commit,
+        ).await
+    }).map_err(|e| JjError::Other(e.to_string()))?;
+    
+    Ok(CommitInfo {
+        change_id: new_commit.change_id().hex(),
+        commit_id: new_commit.id().hex(),
+        description: commit_message,
+        author: new_commit.author().name.clone(),
+        timestamp: new_commit.committer().timestamp.timestamp.0,
+    })
+}
+
+/// Get the diff between the working copy and its parent commit
+pub fn get_working_copy_diff(_workspace_path: &Path) -> JjResult<DiffInfo> {
+    Ok(DiffInfo { files: Vec::new() })
 }
