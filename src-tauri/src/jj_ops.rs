@@ -222,3 +222,87 @@ pub fn uncommit(workspace_path: &Path) -> JjResult<CommitInfo> {
         timestamp: parent_commit.committer().timestamp.timestamp.0,
     })
 }
+
+/// Create a new commit on the active branch with a given commit message
+pub fn create_commit(workspace_path: &Path, message: String) -> JjResult<CommitInfo> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let mut workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let workspace_name = workspace.workspace_name();
+    let wc_commit_id: CommitId = {
+        let repo = pollster::block_on(async {
+            let repo_loader = workspace.repo_loader();
+            repo_loader.load_at_head().await.unwrap()
+        });
+        repo.view().get_wc_commit_id(workspace_name)
+            .ok_or_else(|| JjError::Other("No working copy commit found".to_string()))?
+            .clone()
+    };
+    
+    let wc_commit = {
+        let repo = pollster::block_on(async {
+            let repo_loader = workspace.repo_loader();
+            repo_loader.load_at_head().await.unwrap()
+        });
+        repo.store().get_commit(&wc_commit_id).map_err(|e| JjError::Other(e.to_string()))?
+    };
+    
+    let tree = wc_commit.tree();
+    let parent_ids = vec![wc_commit.id().clone()];
+    
+    let new_commit = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        let repo = repo_loader.load_at_head().await.unwrap();
+        
+        let mut tx = repo.start_transaction();
+        
+        let tx_repo = tx.repo_mut();
+        
+        let mut commit_builder = tx_repo.new_commit(
+            parent_ids,
+            tree,
+        ).detach();
+        
+        commit_builder.set_description(&message);
+        
+        let new_commit = commit_builder.write(tx_repo).await
+            .map_err(|e| JjError::Other(e.to_string()))?;
+        
+        tx.commit(&message)
+            .await
+            .map_err(|e| JjError::Other(e.to_string()))?;
+        
+        Ok::<_, JjError>(new_commit)
+    })?;
+    
+    pollster::block_on(async {
+        workspace.check_out(
+            workspace.working_copy().operation_id().clone(),
+            None,
+            &new_commit,
+        ).await
+    }).map_err(|e| JjError::Other(e.to_string()))?;
+    
+    Ok(CommitInfo {
+        change_id: new_commit.change_id().hex(),
+        commit_id: new_commit.id().hex(),
+        description: new_commit.description().to_string(),
+        author: new_commit.author().name.clone(),
+        timestamp: new_commit.committer().timestamp.timestamp.0,
+    })
+}
