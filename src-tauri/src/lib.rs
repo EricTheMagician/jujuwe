@@ -1,6 +1,6 @@
 mod jj_ops;
 
-use jj_ops::{JjError, BranchInfo, CommitInfo, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history};
+use jj_ops::{JjError, BranchInfo, CommitInfo, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit};
 use std::path::PathBuf;
 use tauri::command;
 
@@ -50,6 +50,12 @@ fn get_commits(path: String, limit: Option<usize>) -> Result<Vec<CommitInfo>, St
     get_commit_history(&workspace, limit).map_err(|e: JjError| e.to_string())
 }
 
+#[command]
+fn uncommit_cmd(path: String) -> Result<CommitInfo, String> {
+    let workspace_path = PathBuf::from(&path);
+    uncommit(&workspace_path).map_err(|e: JjError| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -60,7 +66,8 @@ pub fn run() {
             get_repo_info,
             list_branches,
             create_branch,
-            get_commits
+            get_commits,
+            uncommit_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

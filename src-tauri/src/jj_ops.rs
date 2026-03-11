@@ -158,3 +158,67 @@ pub fn get_commit_history(workspace: &Workspace, limit: usize) -> JjResult<Vec<C
 pub fn create_virtual_branch(_workspace: &Workspace, _branch_name: &str) -> JjResult<BranchInfo> {
     Err(JjError::Other("Create branch not fully implemented - needs jj-lib MutableRepo API work".to_string()))
 }
+
+/// Uncommit - move changes from the current working copy commit back to the working copy
+/// This effectively moves the working copy to the parent commit, leaving the current 
+/// changes as uncommitted changes
+pub fn uncommit(workspace_path: &Path) -> JjResult<CommitInfo> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let mut workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let store = repo.store();
+    let view = repo.view();
+    
+    let workspace_name = workspace.workspace_name();
+    let wc_commit_id = view.get_wc_commit_id(workspace_name)
+        .ok_or_else(|| JjError::Other("No working copy commit found".to_string()))?;
+    
+    let wc_commit = store.get_commit(wc_commit_id).map_err(|e| JjError::Other(e.to_string()))?;
+    
+    let parent_ids: Vec<_> = wc_commit.parent_ids().into_iter().cloned().collect();
+    
+    if parent_ids.is_empty() {
+        return Err(JjError::Other("Cannot uncommit the root commit".to_string()));
+    }
+    
+    let parent_id = &parent_ids[0];
+    let parent_commit = store.get_commit(parent_id).map_err(|e| JjError::Other(e.to_string()))?;
+    
+    let old_tree = wc_commit.tree();
+    
+    pollster::block_on(async {
+        workspace.check_out(
+            workspace.working_copy().operation_id().clone(),
+            Some(&old_tree),
+            &parent_commit,
+        ).await
+    }).map_err(|e| JjError::Other(e.to_string()))?;
+    
+    Ok(CommitInfo {
+        change_id: parent_commit.change_id().hex(),
+        commit_id: parent_commit.id().hex(),
+        description: parent_commit.description().to_string(),
+        author: parent_commit.author().name.clone(),
+        timestamp: parent_commit.committer().timestamp.timestamp.0,
+    })
+}
