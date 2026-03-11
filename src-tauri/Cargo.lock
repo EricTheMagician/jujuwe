@@ -2874,6 +2874,7 @@ name = "jujuwe"
 version = "0.1.0"
 dependencies = [
  "jj-lib",
+ "pollster",
  "serde",
  "serde_json",
  "tauri",

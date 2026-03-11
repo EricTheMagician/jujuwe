@@ -1,6 +1,6 @@
 mod jj_ops;
 
-use jj_ops::{JjError, load_workspace, get_workspace_root, get_repo_path, get_workspace_name};
+use jj_ops::{JjError, BranchInfo, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch};
 use std::path::PathBuf;
 use tauri::command;
 
@@ -28,6 +28,20 @@ fn get_repo_info(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+#[command]
+fn list_branches(path: String) -> Result<Vec<BranchInfo>, String> {
+    let workspace_path = PathBuf::from(&path);
+    let workspace = load_workspace(&workspace_path).map_err(|e: JjError| e.to_string())?;
+    Ok(list_virtual_branches(&workspace))
+}
+
+#[command]
+fn create_branch(path: String, name: String) -> Result<BranchInfo, String> {
+    let workspace_path = PathBuf::from(&path);
+    let workspace = load_workspace(&workspace_path).map_err(|e: JjError| e.to_string())?;
+    create_virtual_branch(&workspace, &name).map_err(|e: JjError| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -35,7 +49,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             open_workspace,
-            get_repo_info
+            get_repo_info,
+            list_branches,
+            create_branch
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
