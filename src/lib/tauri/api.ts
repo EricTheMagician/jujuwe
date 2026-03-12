@@ -72,6 +72,10 @@ export async function reorderCommits(path: string, commitIds: string[], destinat
   return invoke<CommitInfo[]>('reorder_commits_cmd', { path, commitIds, destinationCommitId });
 }
 
+export async function mergeBranches(path: string, branch1CommitId: string, branch2CommitId: string): Promise<CommitInfo> {
+  return invoke<CommitInfo>('merge_branches_cmd', { path, branch1CommitId, branch2CommitId });
+}
+
 export async function getDiff(path: string): Promise<DiffInfo> {
   return invoke<DiffInfo>('get_diff', { path });
 }

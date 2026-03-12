@@ -1,7 +1,7 @@
 mod jj_ops;
 mod file_watcher;
 
-use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, FileContentDiff, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit, discard_changes, rebase_commit, reorder_commits};
+use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, FileContentDiff, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit, discard_changes, rebase_commit, reorder_commits, merge_branches};
 use file_watcher::{create_file_watcher_state, start_file_watcher, stop_file_watcher};
 use std::path::PathBuf;
 use tauri::command;
@@ -100,6 +100,12 @@ fn get_file_diff(path: String, file_path: String) -> Result<FileContentDiff, Str
     get_file_diff(path, file_path).map_err(|e: JjError| e.to_string())
 }
 
+#[command]
+fn merge_branches_cmd(path: String, branch1_commit_id: String, branch2_commit_id: String) -> Result<CommitInfo, String> {
+    let workspace_path = std::path::PathBuf::from(&path);
+    merge_branches(&workspace_path, branch1_commit_id, branch2_commit_id).map_err(|e: JjError| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let file_watcher_state = create_file_watcher_state();
@@ -122,6 +128,7 @@ pub fn run() {
             get_diff,
             discard_changes_cmd,
             get_file_diff,
+            merge_branches_cmd,
             start_file_watcher,
             stop_file_watcher
         ])

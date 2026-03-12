@@ -835,3 +835,85 @@ pub fn reorder_commits(workspace_path: &Path, commit_ids: Vec<String>, destinati
     
     Ok(rebased_commits)
 }
+
+pub fn merge_branches(workspace_path: &Path, branch1_commit_id: String, branch2_commit_id: String) -> JjResult<CommitInfo> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let store = repo.store();
+    
+    fn hex_to_commit_id(hex: &str) -> Result<CommitId, JjError> {
+        let bytes = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i+2], 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|e| JjError::Other(format!("Invalid hex: {}", e)))?;
+        Ok(CommitId::from_bytes(&bytes))
+    }
+    
+    let commit1_id = hex_to_commit_id(&branch1_commit_id)?;
+    let commit2_id = hex_to_commit_id(&branch2_commit_id)?;
+    
+    let commit1 = store.get_commit(&commit1_id)
+        .map_err(|e| JjError::Other(format!("Failed to get branch1 commit: {}", e)))?;
+    
+    let commit2 = store.get_commit(&commit2_id)
+        .map_err(|e| JjError::Other(format!("Failed to get branch2 commit: {}", e)))?;
+    
+    let parent_ids = vec![commit1.id().clone(), commit2.id().clone()];
+    
+    let merge_commit = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        let repo = repo_loader.load_at_head().await.unwrap();
+        
+        let mut tx = repo.start_transaction();
+        
+        let tx_repo = tx.repo_mut();
+        
+        let tree = commit1.tree();
+        
+        let mut commit_builder = tx_repo.new_commit(
+            parent_ids,
+            tree,
+        ).detach();
+        
+        commit_builder.set_description(&format!("Merge {} into {}", branch2_commit_id, branch1_commit_id));
+        
+        let new_commit = commit_builder.write(tx_repo).await
+            .map_err(|e| JjError::Other(format!("Failed to write merge commit: {}", e)))?;
+        
+        tx.commit(&format!("Merge branches {} and {}", branch1_commit_id, branch2_commit_id))
+            .await
+            .map_err(|e| JjError::Other(format!("Failed to commit merge: {}", e)))?;
+        
+        Ok::<_, JjError>(new_commit)
+    })?;
+    
+    Ok(CommitInfo {
+        change_id: merge_commit.change_id().hex(),
+        commit_id: merge_commit.id().hex(),
+        description: merge_commit.description().to_string(),
+        author: merge_commit.author().name.clone(),
+        timestamp: merge_commit.committer().timestamp.timestamp.0,
+    })
+}

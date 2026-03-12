@@ -230,6 +230,23 @@ export async function reorderCommits(path: string, commitIds: string[], destinat
   }
 }
 
+export async function mergeBranches(path: string, branch1CommitId: string, branch2CommitId: string): Promise<CommitInfo | null> {
+  isLoading.set(true);
+  error.set(null);
+  
+  try {
+    const commit = await api.mergeBranches(path, branch1CommitId, branch2CommitId);
+    await refreshCommits(path);
+    await refreshBranches(path);
+    return commit;
+  } catch (e) {
+    error.set(e instanceof Error ? e.message : String(e));
+    return null;
+  } finally {
+    isLoading.set(false);
+  }
+}
+
 export function stageFile(filePath: string): void {
   stagedFiles.update(files => {
     const newSet = new Set(files);
