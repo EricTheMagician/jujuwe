@@ -1,5 +1,6 @@
 <script lang="ts">
   import { repoPath, openRepository, workingCopyDiff, refreshDiff, repoInfo, selectFileForDiff } from '$lib/stores/repo';
+  import CommitForm from '$lib/components/CommitForm.svelte';
   import BranchList from '$lib/components/BranchList.svelte';
   import BranchSelector from '$lib/components/BranchSelector.svelte';
   import ChangedFiles from '$lib/components/ChangedFiles.svelte';
@@ -64,6 +65,9 @@
       </aside>
 
       <main class="content">
+        <div class="commit-panel">
+          <CommitForm />
+        </div>
         <div class="files-panel">
           <ChangedFiles />
         </div>
@@ -207,6 +211,12 @@
   .diff-panel {
     flex: 1;
     overflow-y: auto;
+  }
+
+  .commit-panel {
+    padding: 12px;
+    background: var(--bg-secondary, #f5f5f5);
+    border-bottom: 1px solid var(--border-color, #ddd);
   }
 
   .welcome {
