@@ -6,6 +6,7 @@
   import ChangedFiles from '$lib/components/ChangedFiles.svelte';
   import DiffViewer from '$lib/components/DiffViewer.svelte';
   import CommitHistory from '$lib/components/CommitHistory.svelte';
+  import MergeDialog from '$lib/components/MergeDialog.svelte';
 
   let path = $state('');
   let isOpening = $state(false);
@@ -34,6 +35,7 @@
   }
 
   let hasRepo = $derived($repoPath !== null);
+  let showMergeDialog = $state(false);
 </script>
 
 <div class="flex flex-col h-screen overflow-hidden">
@@ -66,7 +68,7 @@
           <BranchSelector />
         </div>
         <div class="flex-1 overflow-y-auto">
-          <BranchList />
+          <BranchList onMerge={() => showMergeDialog = true} />
         </div>
       </aside>
 
@@ -88,6 +90,7 @@
         <CommitHistory />
       </div>
     </div>
+    <MergeDialog open={showMergeDialog} onClose={() => showMergeDialog = false} />
   {:else}
     <div class="flex-1 flex flex-col items-center justify-center text-[var(--color-text-secondary)]">
       <h2 class="mb-2 text-xl font-semibold text-[var(--color-text-primary)]">Welcome to Jujuwe</h2>

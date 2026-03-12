@@ -2,7 +2,7 @@
   import { branches, sortedBranches, activeBranch, refreshBranches, repoPath, setBranchOrder } from '$lib/stores/repo';
   import type { BranchInfo } from '$lib/tauri/api';
 
-  let { onBranchSelect }: { onBranchSelect?: (branch: BranchInfo) => void } = $props();
+  let { onBranchSelect, onMerge }: { onBranchSelect?: (branch: BranchInfo) => void, onMerge?: () => void } = $props();
 
   let draggedIndex: number | null = $state(null);
   let dragOverIndex: number | null = $state(null);
@@ -64,6 +64,15 @@
         <path d="M21 3v5h-5"/>
       </svg>
     </button>
+    {#if onMerge}
+    <button class="p-1 rounded bg-transparent border-none cursor-pointer text-[var(--color-text-secondary)] flex items-center justify-center hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]" onclick={onMerge} title="Merge branch">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="18" cy="18" r="3"/>
+        <circle cx="6" cy="6" r="3"/>
+        <path d="M6 21V9a9 9 0 0 0 9 9"/>
+      </svg>
+    </button>
+    {/if}
   </div>
   
   <ul class="list-none p-0 m-0">
