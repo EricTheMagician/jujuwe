@@ -36,212 +36,62 @@
   let hasRepo = $derived($repoPath !== null);
 </script>
 
-<div class="app">
-  <header class="toolbar">
-    <div class="folder-input">
+<div class="flex flex-col h-screen overflow-hidden">
+  <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
+    <div class="flex gap-2 flex-1 max-w-[600px]">
       <input 
         type="text" 
         placeholder="Enter repository path..." 
         bind:value={path}
         onkeydown={handleKeydown}
+        class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md outline-none focus:border-[var(--color-accent)] transition-colors"
       />
-      <button onclick={handleOpenRepo} disabled={isOpening || !path.trim()}>
+      <button 
+        onclick={handleOpenRepo} 
+        disabled={isOpening || !path.trim()}
+        class="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] rounded-md hover:bg-[var(--color-accent-hover)] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+      >
         {isOpening ? 'Opening...' : 'Open'}
       </button>
     </div>
     {#if openError}
-      <div class="error">{openError}</div>
+      <div class="text-sm text-[var(--color-removed-text)] px-2 py-1 bg-[var(--color-removed-bg)] rounded">{openError}</div>
     {/if}
   </header>
 
   {#if hasRepo}
-    <div class="workspace">
-      <aside class="sidebar">
-        <div class="branch-panel">
+    <div class="flex flex-1 overflow-hidden">
+      <aside class="w-[280px] flex flex-col gap-3 p-3 bg-[var(--color-bg-secondary)] border-r border-gray-200 overflow-y-auto">
+        <div class="p-2 bg-white rounded-lg border border-gray-200">
           <BranchSelector />
         </div>
-        <div class="branch-list-panel">
+        <div class="flex-1 overflow-y-auto">
           <BranchList />
         </div>
       </aside>
 
-      <main class="content">
-        <div class="commit-panel">
-          <CommitForm />
-        </div>
-        <div class="files-panel">
+      <main class="flex-1 flex gap-3 p-3 overflow-hidden">
+        <div class="w-[320px] flex-shrink-0 overflow-y-auto">
           <ChangedFiles />
         </div>
-        <div class="diff-panel">
+        <div class="flex-1 overflow-y-auto">
           <DiffViewer />
-        </div>
-        <div class="history-panel">
-          <CommitHistory />
         </div>
       </main>
     </div>
+    
+    <div class="flex flex-col">
+      <div class="p-3 bg-[var(--color-bg-secondary)] border-b border-gray-200">
+        <CommitForm />
+      </div>
+      <div class="p-3 bg-[var(--color-bg-secondary)] border-t border-gray-200 max-h-[200px] overflow-y-auto">
+        <CommitHistory />
+      </div>
+    </div>
   {:else}
-    <div class="welcome">
-      <h2>Welcome to Jujuwe</h2>
+    <div class="flex-1 flex flex-col items-center justify-center text-[var(--color-text-secondary)]">
+      <h2 class="mb-2 text-xl font-semibold text-[var(--color-text-primary)]">Welcome to Jujuwe</h2>
       <p>Enter a repository path above to get started</p>
     </div>
   {/if}
 </div>
-
-<style>
-  :global(*) {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-
-  :global(body) {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-    font-size: 14px;
-    line-height: 1.5;
-    color: #333;
-    background: #fafafa;
-  }
-
-  .app {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    background: #fff;
-    border-bottom: 1px solid #e0e0e0;
-  }
-
-  .folder-input {
-    display: flex;
-    gap: 8px;
-    flex: 1;
-    max-width: 600px;
-  }
-
-  .folder-input input {
-    flex: 1;
-    padding: 8px 12px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    font-size: 14px;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-
-  .folder-input input:focus {
-    border-color: #0066cc;
-  }
-
-  .folder-input button {
-    padding: 8px 16px;
-    background: #0066cc;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background-color 0.15s;
-  }
-
-  .folder-input button:hover:not(:disabled) {
-    background: #0055aa;
-  }
-
-  .folder-input button:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-  }
-
-  .error {
-    color: #dc2626;
-    font-size: 13px;
-    padding: 4px 8px;
-    background: #fee2e1;
-    border-radius: 4px;
-  }
-
-  .workspace {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  .sidebar {
-    width: 280px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px;
-    background: #f5f5f5;
-    border-right: 1px solid #e0e0e0;
-    overflow-y: auto;
-  }
-
-  .branch-panel {
-    padding: 8px;
-    background: #fff;
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
-  }
-
-  .branch-list-panel {
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  .content {
-    flex: 1;
-    display: flex;
-    gap: 12px;
-    padding: 12px;
-    overflow: hidden;
-  }
-
-  .files-panel {
-    width: 320px;
-    flex-shrink: 0;
-    overflow-y: auto;
-  }
-
-  .diff-panel {
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  .commit-panel {
-    padding: 12px;
-    background: var(--bg-secondary, #f5f5f5);
-    border-bottom: 1px solid var(--border-color, #ddd);
-  }
-
-  .history-panel {
-    padding: 12px;
-    background: var(--bg-secondary, #f5f5f5);
-    border-top: 1px solid var(--border-color, #ddd);
-    max-height: 200px;
-    overflow-y: auto;
-  }
-
-  .welcome {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #666;
-  }
-
-  .welcome h2 {
-    margin-bottom: 8px;
-    color: #333;
-  }
-</style>

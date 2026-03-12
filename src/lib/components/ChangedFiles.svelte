@@ -44,21 +44,21 @@
     }
   }
 
-  $: stagedCount = $stagedFiles.size;
-  $: totalCount = $workingCopyDiff?.files.length ?? 0;
+  let stagedCount = $derived($stagedFiles.size);
+  let totalCount = $derived($workingCopyDiff?.files.length ?? 0);
 </script>
 
-<div class="changed-files">
-  <div class="header">
-    <h3>Changed Files</h3>
-    <div class="actions">
-      <button class="action-btn" onclick={handleStageAll} title="Stage all">
+<div class="p-3 bg-[var(--color-bg-secondary)] rounded-lg min-w-[250px]">
+  <div class="flex justify-between items-center mb-3">
+    <h3 class="m-0 text-sm font-semibold text-[var(--color-text-primary)]">Changed Files</h3>
+    <div class="flex gap-1 items-center">
+      <button class="px-2 py-1 rounded text-[11px] border border-gray-200 bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] cursor-pointer" onclick={handleStageAll} title="Stage all">
         Stage All
       </button>
-      <button class="action-btn" onclick={handleUnstageAll} title="Unstage all">
+      <button class="px-2 py-1 rounded text-[11px] border border-gray-200 bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] cursor-pointer" onclick={handleUnstageAll} title="Unstage all">
         Unstage All
       </button>
-      <button class="refresh-btn" onclick={handleRefresh} title="Refresh" disabled={$isLoading}>
+      <button class="p-1 rounded bg-transparent border-none cursor-pointer text-[var(--color-text-secondary)] flex items-center justify-center hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed" onclick={handleRefresh} title="Refresh" disabled={$isLoading}>
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
           <path d="M21 3v5h-5"/>
@@ -68,200 +68,27 @@
   </div>
 
   {#if stagedCount > 0}
-    <div class="staged-info">
+    <div class="text-xs text-[var(--color-accent)] px-2 py-1 bg-[var(--color-accent-light)] rounded mb-2">
       {stagedCount} of {totalCount} files staged
     </div>
   {/if}
 
-  <div class="file-list">
+  <div class="flex flex-col gap-0.5 max-h-[300px] overflow-y-auto">
     {#if $workingCopyDiff && $workingCopyDiff.files.length > 0}
       {#each $workingCopyDiff.files as file}
         <button 
-          class="file-item {getFileClass(file.diff_type)}" 
-          class:staged={isStaged(file.path)}
+          class="flex items-center gap-2 px-2 py-1.5 rounded text-xs font-mono border-none bg-transparent w-full cursor-pointer text-left {getFileClass(file.diff_type)}"
+          class:bg-[var(--color-accent-light)]={isStaged(file.path)}
           onclick={() => handleFileClick(file)}
         >
-          <span class="checkbox">{isStaged(file.path) ? '✓' : ' '}</span>
-          <span class="file-icon">{getFileIcon(file.diff_type)}</span>
-          <span class="file-path">{file.path}</span>
-          <span class="file-type">{file.diff_type}</span>
+          <span class="w-4 text-center text-[var(--color-accent)] font-bold">{isStaged(file.path) ? '✓' : ' '}</span>
+          <span class="w-4 text-center font-bold {file.diff_type === 'added' ? 'text-[var(--color-added)]' : file.diff_type === 'removed' ? 'text-[var(--color-removed)]' : 'text-[var(--color-modified)]'}">{getFileIcon(file.diff_type)}</span>
+          <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">{file.path}</span>
+          <span class="text-[10px] px-1 py-0.5 rounded uppercase {file.diff_type === 'added' ? 'bg-[var(--color-added-bg)] text-[var(--color-added-text)]' : file.diff_type === 'removed' ? 'bg-[var(--color-removed-bg)] text-[var(--color-removed-text)]' : 'bg-[var(--color-modified-bg)] text-[var(--color-modified-text)]'}">{file.diff_type}</span>
         </button>
       {/each}
     {:else}
-      <p class="empty">No changes detected</p>
+      <p class="text-center text-[var(--color-text-muted)] text-sm py-5">No changes detected</p>
     {/if}
   </div>
 </div>
-
-<style>
-  .changed-files {
-    background: var(--bg-secondary, #f5f5f5);
-    border-radius: 8px;
-    padding: 12px;
-    min-width: 250px;
-  }
-
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-  }
-
-  .header h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary, #333);
-  }
-
-  .actions {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-  }
-
-  .action-btn {
-    background: none;
-    border: 1px solid var(--border-color, #ddd);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    color: var(--text-secondary, #666);
-    font-size: 11px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .action-btn:hover {
-    background: var(--bg-hover, #e0e0e0);
-    color: var(--text-primary, #333);
-  }
-
-  .refresh-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    color: var(--text-secondary, #666);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .refresh-btn:hover:not(:disabled) {
-    background: var(--bg-hover, #e0e0e0);
-    color: var(--text-primary, #333);
-  }
-
-  .refresh-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .staged-info {
-    font-size: 12px;
-    color: var(--accent-color, #0066cc);
-    padding: 4px 8px;
-    background: var(--accent-bg, #e3efff);
-    border-radius: 4px;
-    margin-bottom: 8px;
-  }
-
-  .file-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-height: 300px;
-    overflow-y: auto;
-  }
-
-  .file-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-family: monospace;
-    border: none;
-    background: transparent;
-    width: 100%;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .file-item:hover {
-    background: var(--bg-hover, #e8e8e8);
-  }
-
-  .file-item.staged {
-    background: var(--accent-bg, #e3efff);
-  }
-
-  .checkbox {
-    width: 16px;
-    text-align: center;
-    color: var(--accent-color, #0066cc);
-    font-weight: bold;
-  }
-
-  .file-icon {
-    width: 16px;
-    text-align: center;
-    font-weight: bold;
-  }
-
-  .file-added .file-icon {
-    color: #22c55e;
-  }
-
-  .file-removed .file-icon {
-    color: #ef4444;
-  }
-
-  .file-modified .file-icon {
-    color: #f59e0b;
-  }
-
-  .file-path {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-primary, #333);
-  }
-
-  .file-type {
-    font-size: 10px;
-    padding: 2px 4px;
-    border-radius: 3px;
-    background: var(--bg-tertiary, #eaeaea);
-    color: var(--text-secondary, #666);
-    text-transform: uppercase;
-  }
-
-  .file-added .file-type {
-    background: #dcfce7;
-    color: #166534;
-  }
-
-  .file-removed .file-type {
-    background: #fee2e1;
-    color: #991b1b;
-  }
-
-  .file-modified .file-type {
-    background: #fef3c7;
-    color: #92400e;
-  }
-
-  .empty {
-    text-align: center;
-    color: var(--text-secondary, #888);
-    font-size: 13px;
-    padding: 20px;
-  }
-</style>
