@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { commits, repoPath, refreshCommits, isLoading } from '$lib/stores/repo';
+  import { commits, repoPath, refreshCommits, isLoadingCommits, commitsError } from '$lib/stores/repo';
+  import LoadingSpinner from './LoadingSpinner.svelte';
 
   async function handleRefresh() {
     const path = $repoPath;
@@ -40,7 +41,13 @@
 <div class="p-3 bg-[var(--color-bg-secondary)] rounded-lg min-w-[300px]">
   <div class="flex justify-between items-center mb-3">
     <h3 class="m-0 text-sm font-semibold text-[var(--color-text-primary)]">Commit History</h3>
-    <button class="p-1 rounded bg-transparent border-none cursor-pointer text-[var(--color-text-secondary)] flex items-center justify-center hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed" onclick={handleRefresh} title="Refresh" disabled={$isLoading}>
+    <button 
+      class="p-1 rounded bg-transparent border-none cursor-pointer text-[var(--color-text-secondary)] flex items-center justify-center hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
+      class:animate-spin={$isLoadingCommits}
+      onclick={handleRefresh} 
+      title="Refresh" 
+      disabled={$isLoadingCommits}
+    >
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
         <path d="M21 3v5h-5"/>
@@ -48,8 +55,24 @@
     </button>
   </div>
 
-  <div class="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
-    {#if $commits.length > 0}
+  {#if $isLoadingCommits}
+    <div class="py-5">
+      <LoadingSpinner size="medium" message="Loading commits..." />
+    </div>
+  {:else if $commitsError}
+    <div class="text-center py-3">
+      <p class="text-xs text-[var(--color-removed-text)] mb-2">{$commitsError}</p>
+      <button 
+        class="px-3 py-1 text-xs rounded bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]"
+        onclick={handleRefresh}
+      >
+        Retry
+      </button>
+    </div>
+  {:else if $commits.length === 0}
+    <p class="text-center text-[var(--color-text-muted)] text-sm py-5">No commits yet</p>
+  {:else}
+    <div class="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
       {#each $commits as commit}
         <div class="p-2.5 bg-white rounded-md border border-gray-200 hover:border-[var(--color-accent)] transition-colors">
           <div class="flex gap-2 items-center mb-1">
@@ -63,8 +86,6 @@
           </div>
         </div>
       {/each}
-    {:else}
-      <p class="text-center text-[var(--color-text-muted)] text-sm py-5">No commits yet</p>
-    {/if}
-  </div>
+    </div>
+  {/if}
 </div>

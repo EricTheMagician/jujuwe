@@ -27,6 +27,16 @@ export const isLoading = writable<boolean>(false);
 
 export const error = writable<string | null>(null);
 
+// Per-operation loading states
+export const isLoadingBranches = writable<boolean>(false);
+export const isLoadingCommits = writable<boolean>(false);
+export const isLoadingDiff = writable<boolean>(false);
+
+// Per-operation error states
+export const branchesError = writable<string | null>(null);
+export const commitsError = writable<string | null>(null);
+export const diffError = writable<string | null>(null);
+
 export const currentWorkspace = writable<string | null>(null);
 
 export const selectedFile = writable<string | null>(null);
@@ -165,6 +175,9 @@ export async function closeFileWatcher(): Promise<void> {
 }
 
 export async function refreshBranches(path: string): Promise<void> {
+  isLoadingBranches.set(true);
+  branchesError.set(null);
+  
   try {
     const branchList = await api.listBranches(path);
     branches.set(branchList);
@@ -173,25 +186,37 @@ export async function refreshBranches(path: string): Promise<void> {
       activeBranch.set(branchList[0].name);
     }
   } catch (e) {
-    error.set(e instanceof Error ? e.message : String(e));
+    branchesError.set(e instanceof Error ? e.message : String(e));
+  } finally {
+    isLoadingBranches.set(false);
   }
 }
 
 export async function refreshCommits(path: string): Promise<void> {
+  isLoadingCommits.set(true);
+  commitsError.set(null);
+  
   try {
     const commitList = await api.getCommits(path);
     commits.set(commitList);
   } catch (e) {
-    error.set(e instanceof Error ? e.message : String(e));
+    commitsError.set(e instanceof Error ? e.message : String(e));
+  } finally {
+    isLoadingCommits.set(false);
   }
 }
 
 export async function refreshDiff(path: string): Promise<void> {
+  isLoadingDiff.set(true);
+  diffError.set(null);
+  
   try {
     const diff = await api.getDiff(path);
     workingCopyDiff.set(diff);
   } catch (e) {
-    error.set(e instanceof Error ? e.message : String(e));
+    diffError.set(e instanceof Error ? e.message : String(e));
+  } finally {
+    isLoadingDiff.set(false);
   }
 }
 
