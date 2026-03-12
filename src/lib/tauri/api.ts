@@ -64,6 +64,10 @@ export async function amendCommit(path: string, message: string): Promise<Commit
   return invoke<CommitInfo>('amend_commit_cmd', { path, message });
 }
 
+export async function rebaseCommit(path: string, commitId: string, destinationCommitId: string): Promise<CommitInfo> {
+  return invoke<CommitInfo>('rebase_commit_cmd', { path, commitId, destinationCommitId });
+}
+
 export async function getDiff(path: string): Promise<DiffInfo> {
   return invoke<DiffInfo>('get_diff', { path });
 }

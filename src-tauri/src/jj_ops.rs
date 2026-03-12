@@ -1,5 +1,6 @@
 use jj_lib::backend::CommitId;
 use jj_lib::object_id::ObjectId;
+use jj_lib::rewrite;
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, Workspace, WorkspaceLoadError};
 use jj_lib::repo::{StoreFactories, Repo};
@@ -80,6 +81,23 @@ pub struct FileDiff {
 #[derive(Debug, Clone, Serialize)]
 pub struct DiffInfo {
     pub files: Vec<FileDiff>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FileContentDiff {
+    pub path: String,
+    pub old_content: Option<String>,
+    pub new_content: Option<String>,
+    pub hunks: Vec<DiffHunk>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiffHunk {
+    pub old_start: usize,
+    pub old_lines: usize,
+    pub new_start: usize,
+    pub new_lines: usize,
+    pub content: String,
 }
 
 pub fn list_virtual_branches(workspace: &Workspace) -> Vec<BranchInfo> {
@@ -405,6 +423,177 @@ pub fn amend_commit(workspace_path: &Path, message: String) -> JjResult<CommitIn
 }
 
 /// Get the diff between the working copy and its parent commit
-pub fn get_working_copy_diff(_workspace_path: &Path) -> JjResult<DiffInfo> {
-    Ok(DiffInfo { files: Vec::new() })
+pub fn get_working_copy_diff(workspace_path: &Path) -> JjResult<DiffInfo> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let store = repo.store();
+    let view = repo.view();
+    
+    let workspace_name = workspace.workspace_name();
+    let wc_commit_id = view.get_wc_commit_id(workspace_name)
+        .ok_or_else(|| JjError::Other("No working copy commit found".to_string()))?;
+    
+    let wc_commit = store.get_commit(wc_commit_id)
+        .map_err(|e| JjError::Other(e.to_string()))?;
+    
+    let wc_tree = wc_commit.tree();
+    
+    let parent_ids: Vec<_> = wc_commit.parent_ids().into_iter().cloned().collect();
+    
+    let mut files: Vec<FileDiff> = Vec::new();
+    
+    if let Some(parent_id) = parent_ids.first() {
+        let parent_commit = store.get_commit(parent_id)
+            .map_err(|e| JjError::Other(e.to_string()))?;
+        let parent_tree = parent_commit.tree();
+        
+        for (path, _) in parent_tree.entries() {
+            let path_str = format!("{:?}", path);
+            files.push(FileDiff {
+                path: path_str.clone(),
+                old_id: Some(path_str),
+                new_id: None,
+                diff_type: "removed".to_string(),
+            });
+        }
+        
+        for (path, _) in wc_tree.entries() {
+            let path_str = format!("{:?}", path);
+            let existing = files.iter_mut().find(|f| f.path == path_str);
+            if let Some(existing) = existing {
+                existing.diff_type = "modified".to_string();
+                existing.new_id = Some(path_str);
+            } else {
+                files.push(FileDiff {
+                    path: path_str,
+                    old_id: None,
+                    new_id: Some(format!("{:?}", path)),
+                    diff_type: "added".to_string(),
+                });
+            }
+        }
+    } else {
+        for (path, _) in wc_tree.entries() {
+            files.push(FileDiff {
+                path: format!("{:?}", path),
+                old_id: None,
+                new_id: Some(format!("{:?}", path)),
+                diff_type: "added".to_string(),
+            });
+        }
+    }
+    
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    
+    Ok(DiffInfo { files })
+}
+
+pub fn discard_changes(_workspace_path: &Path, _files: Vec<String>) -> JjResult<()> {
+    Ok(())
+}
+
+pub fn get_file_diff(_workspace_path: String, file_path: String) -> JjResult<FileContentDiff> {
+    Ok(FileContentDiff {
+        path: file_path,
+        old_content: None,
+        new_content: None,
+        hunks: Vec::new(),
+    })
+}
+
+pub fn rebase_commit(workspace_path: &Path, commit_id: String, destination_commit_id: String) -> JjResult<CommitInfo> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let store = repo.store();
+    
+    fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, JjError> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i+2], 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|e| JjError::Other(format!("Invalid hex: {}", e)))
+    }
+    
+    let commit_id_bytes = hex_to_bytes(&commit_id)?;
+    let commit_id = CommitId::from_bytes(&commit_id_bytes);
+    
+    let dest_commit_id_bytes = hex_to_bytes(&destination_commit_id)?;
+    let dest_commit_id = CommitId::from_bytes(&dest_commit_id_bytes);
+    
+    let old_commit = store.get_commit(&commit_id)
+        .map_err(|e| JjError::Other(format!("Failed to get commit to rebase: {}", e)))?;
+    
+    let dest_commit = store.get_commit(&dest_commit_id)
+        .map_err(|e| JjError::Other(format!("Failed to get destination commit: {}", e)))?;
+    
+    let new_parents = vec![dest_commit.id().clone()];
+    
+    let rebased_commit = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        let repo = repo_loader.load_at_head().await.unwrap();
+        
+        let mut tx = repo.start_transaction();
+        
+        let tx_repo = tx.repo_mut();
+        
+        let rebased_commit = rewrite::rebase_commit(tx_repo, old_commit, new_parents)
+            .await
+            .map_err(|e| JjError::Other(format!("Failed to rebase commit: {}", e)))?;
+        
+        tx.commit(&format!("Rebase commit {} onto {}", commit_id.hex(), dest_commit_id.hex()))
+            .await
+            .map_err(|e| JjError::Other(format!("Failed to commit rebase: {}", e)))?;
+        
+        Ok::<_, JjError>(rebased_commit)
+    })?;
+    
+    Ok(CommitInfo {
+        change_id: rebased_commit.change_id().hex(),
+        commit_id: rebased_commit.id().hex(),
+        description: rebased_commit.description().to_string(),
+        author: rebased_commit.author().name.clone(),
+        timestamp: rebased_commit.committer().timestamp.timestamp.0,
+    })
 }

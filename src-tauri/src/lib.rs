@@ -1,7 +1,7 @@
 mod jj_ops;
 mod file_watcher;
 
-use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, FileContentDiff, DiffHunk, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit, discard_changes};
+use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, FileContentDiff, DiffHunk, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit, discard_changes, rebase_commit};
 use file_watcher::{create_file_watcher_state, start_file_watcher, stop_file_watcher};
 use std::path::PathBuf;
 use tauri::command;
@@ -71,6 +71,12 @@ fn amend_commit_cmd(path: String, message: String) -> Result<CommitInfo, String>
 }
 
 #[command]
+fn rebase_commit_cmd(path: String, commit_id: String, destination_commit_id: String) -> Result<CommitInfo, String> {
+    let workspace_path = PathBuf::from(&path);
+    rebase_commit(&workspace_path, commit_id, destination_commit_id).map_err(|e: JjError| e.to_string())
+}
+
+#[command]
 fn get_diff(path: String) -> Result<DiffInfo, String> {
     let workspace_path = PathBuf::from(&path);
     get_working_copy_diff(&workspace_path).map_err(|e: JjError| e.to_string())
@@ -105,6 +111,7 @@ pub fn run() {
             uncommit_cmd,
             create_commit_cmd,
             amend_commit_cmd,
+            rebase_commit_cmd,
             get_diff,
             discard_changes_cmd,
             get_file_diff,
