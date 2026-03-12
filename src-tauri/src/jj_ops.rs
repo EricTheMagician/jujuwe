@@ -1,3 +1,4 @@
+use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::backend::CommitId;
 use jj_lib::object_id::ObjectId;
 use jj_lib::rewrite;
@@ -513,13 +514,169 @@ pub fn discard_changes(_workspace_path: &Path, _files: Vec<String>) -> JjResult<
     Ok(())
 }
 
-pub fn get_file_diff(_workspace_path: String, file_path: String) -> JjResult<FileContentDiff> {
+pub fn get_file_diff(workspace_path: String, file_path: String) -> JjResult<FileContentDiff> {
+    let workspace_path = Path::new(&workspace_path)
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let store = repo.store();
+    let view = repo.view();
+    
+    let workspace_name = workspace.workspace_name();
+    let wc_commit_id = view.get_wc_commit_id(workspace_name)
+        .ok_or_else(|| JjError::Other("No working copy commit found".to_string()))?;
+    
+    let wc_commit = store.get_commit(wc_commit_id)
+        .map_err(|e| JjError::Other(e.to_string()))?;
+    
+    let repo_path = RepoPathBuf::from_internal_string(&file_path)
+        .map_err(|e| JjError::Path(format!("Invalid path: {}", e)))?;
+    
+    let old_content = pollster::block_on(async {
+        match wc_commit.parent_tree(&*repo).await {
+            Ok(tree) => read_file_from_merged_tree(&tree, &repo_path, &store).await,
+            Err(_) => Ok(None),
+        }
+    })?;
+    
+    let fs_path = workspace.workspace_root().join(&file_path);
+    let new_content = std::fs::read_to_string(&fs_path).ok();
+    
+    let hunks = generate_diff_hunks(old_content.as_deref(), new_content.as_deref());
+    
     Ok(FileContentDiff {
         path: file_path,
-        old_content: None,
-        new_content: None,
-        hunks: Vec::new(),
+        old_content,
+        new_content,
+        hunks,
     })
+}
+
+async fn read_file_from_merged_tree(tree: &jj_lib::merged_tree::MergedTree, path: &RepoPathBuf, store: &jj_lib::store::Store) -> JjResult<Option<String>> {
+    use tokio::io::AsyncReadExt;
+    
+    match tree.path_value(path) {
+        Ok(value) => {
+            let tree_value = value.into_iter().find_map(|v| v);
+            
+            if let Some(jj_lib::backend::TreeValue::File { id, .. }) = tree_value {
+                match store.read_file(path, &id).await {
+                    Ok(mut reader) => {
+                        let mut content = String::new();
+                        reader.read_to_string(&mut content).await.ok();
+                        Ok(Some(content))
+                    }
+                    Err(_) => Ok(None),
+                }
+            } else {
+                Ok(None)
+            }
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+fn generate_diff_hunks(old_content: Option<&str>, new_content: Option<&str>) -> Vec<DiffHunk> {
+    let old_lines: Vec<&str> = old_content.map(|c| c.lines().collect()).unwrap_or_default();
+    let new_lines: Vec<&str> = new_content.map(|c| c.lines().collect()).unwrap_or_default();
+    
+    if old_lines == new_lines {
+        return Vec::new();
+    }
+    
+    let mut hunks = Vec::new();
+    let mut i = 0;
+    let mut j = 0;
+    
+    while i < old_lines.len() || j < new_lines.len() {
+        if i < old_lines.len() && j < new_lines.len() && old_lines[i] == new_lines[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+        
+        let hunk_start_old = i;
+        let hunk_start_new = j;
+        
+        let mut old_hunk_lines = 0;
+        let mut new_hunk_lines = 0;
+        
+        let max_iterations = std::cmp::max(old_lines.len(), new_lines.len());
+        let mut k = 0;
+        while k < max_iterations && (i + old_hunk_lines < old_lines.len() || j + new_hunk_lines < new_lines.len()) {
+            let old_idx = i + old_hunk_lines;
+            let new_idx = j + new_hunk_lines;
+            
+            let found_match = if old_idx < old_lines.len() && new_idx < new_lines.len() {
+                old_lines[old_idx..].iter().zip(new_lines[new_idx..].iter())
+                    .take(3)
+                    .any(|(o, n)| o == n)
+            } else {
+                false
+            };
+            
+            if found_match {
+                break;
+            }
+            
+            if old_idx < old_lines.len() {
+                old_hunk_lines += 1;
+            }
+            if new_idx < new_lines.len() {
+                new_hunk_lines += 1;
+            }
+            
+            if old_hunk_lines > 0 && new_hunk_lines > 0 {
+                break;
+            }
+            
+            k += 1;
+        }
+        
+        if old_hunk_lines == 0 && new_hunk_lines == 0 {
+            break;
+        }
+        
+        let mut hunk_content = String::new();
+        for idx in 0..old_hunk_lines {
+            hunk_content.push_str(&format!("-{}\n", old_lines[i + idx]));
+        }
+        for idx in 0..new_hunk_lines {
+            hunk_content.push_str(&format!("+{}\n", new_lines[j + idx]));
+        }
+        
+        hunks.push(DiffHunk {
+            old_start: hunk_start_old + 1,
+            old_lines: old_hunk_lines,
+            new_start: hunk_start_new + 1,
+            new_lines: new_hunk_lines,
+            content: hunk_content,
+        });
+        
+        i += old_hunk_lines;
+        j += new_hunk_lines;
+    }
+    
+    hunks
 }
 
 pub fn rebase_commit(workspace_path: &Path, commit_id: String, destination_commit_id: String) -> JjResult<CommitInfo> {

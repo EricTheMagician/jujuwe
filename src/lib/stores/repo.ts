@@ -28,6 +28,21 @@ export const error = writable<string | null>(null);
 
 export const currentWorkspace = writable<string | null>(null);
 
+export const selectedFile = writable<string | null>(null);
+
+export const selectedFileDiff = writable<FileContentDiff | null>(null);
+
+export async function selectFileForDiff(filePath: string): Promise<void> {
+  selectedFile.set(filePath);
+  const diff = await getFileDiffContent(filePath);
+  selectedFileDiff.set(diff);
+}
+
+export function clearSelectedFile(): void {
+  selectedFile.set(null);
+  selectedFileDiff.set(null);
+}
+
 export async function openRepository(path: string): Promise<void> {
   isLoading.set(true);
   error.set(null);

@@ -1,7 +1,7 @@
 mod jj_ops;
 mod file_watcher;
 
-use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, FileContentDiff, DiffHunk, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit, discard_changes, rebase_commit};
+use jj_ops::{JjError, BranchInfo, CommitInfo, DiffInfo, FileContentDiff, load_workspace, get_workspace_root, get_repo_path, get_workspace_name, list_virtual_branches, create_virtual_branch, get_commit_history, uncommit, create_commit, get_working_copy_diff, amend_commit, discard_changes, rebase_commit};
 use file_watcher::{create_file_watcher_state, start_file_watcher, stop_file_watcher};
 use std::path::PathBuf;
 use tauri::command;
