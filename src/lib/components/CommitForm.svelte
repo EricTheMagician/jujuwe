@@ -5,6 +5,16 @@
   let showSuccess = $state(false);
 
   let stagedCount = $derived($stagedFiles.size);
+  let canSubmit = $derived(commitMessage.trim() && stagedCount > 0 && !$isLoading);
+
+  function handleKeydown(event: KeyboardEvent) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      if (canSubmit) {
+        handleCreateCommit();
+      }
+    }
+  }
 
   async function handleCreateCommit() {
     const path = $repoPath;
@@ -46,6 +56,7 @@
 
   <textarea
     bind:value={commitMessage}
+    onkeydown={handleKeydown}
     placeholder="Enter commit message..."
     rows="4"
     disabled={$isLoading}

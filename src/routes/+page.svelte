@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { repoPath, openRepository, workingCopyDiff, refreshDiff, repoInfo, selectFileForDiff } from '$lib/stores/repo';
+  import { repoPath, openRepository, workingCopyDiff, refreshDiff, repoInfo, selectFileForDiff, stageAllFiles, clearStagedFiles, refreshBranches, refreshCommits } from '$lib/stores/repo';
   import CommitForm from '$lib/components/CommitForm.svelte';
   import BranchList from '$lib/components/BranchList.svelte';
   import BranchSelector from '$lib/components/BranchSelector.svelte';
@@ -29,14 +29,64 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter') {
+    if (event.key === 'Escape') {
+      if (showKeyboardHints) {
+        showKeyboardHints = false;
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (event.key === '?' || (event.ctrlKey && event.key === '/')) {
+      event.preventDefault();
+      showKeyboardHints = !showKeyboardHints;
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       handleOpenRepo();
+      return;
+    }
+
+    const isMod = event.ctrlKey || event.metaKey;
+    const isShift = event.shiftKey;
+
+    if (!hasRepo) return;
+
+    if (isMod && isShift && event.key === 's') {
+      event.preventDefault();
+      stageAllFiles();
+      return;
+    }
+
+    if (isMod && isShift && event.key === 'u') {
+      event.preventDefault();
+      clearStagedFiles();
+      return;
+    }
+
+    if (isMod && !isShift && event.key === 'r') {
+      event.preventDefault();
+      const currentPath = $repoPath;
+      if (currentPath) {
+        refreshDiff(currentPath);
+        refreshBranches(currentPath);
+        refreshCommits(currentPath);
+      }
+      return;
     }
   }
 
   let hasRepo = $derived($repoPath !== null);
   let showMergeDialog = $state(false);
+  let showKeyboardHints = $state(false);
+
+  function closeKeyboardHints() {
+    showKeyboardHints = false;
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="flex flex-col h-screen overflow-hidden">
   <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
@@ -59,6 +109,13 @@
     {#if openError}
       <div class="text-sm text-[var(--color-removed-text)] px-2 py-1 bg-[var(--color-removed-bg)] rounded">{openError}</div>
     {/if}
+    <button
+      onclick={() => showKeyboardHints = true}
+      class="px-2.5 py-1.5 text-sm text-[var(--color-text-secondary)] bg-transparent border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+      title="Keyboard shortcuts (?)"
+    >
+      ?
+    </button>
   </header>
 
   {#if hasRepo}
@@ -95,6 +152,84 @@
     <div class="flex-1 flex flex-col items-center justify-center text-[var(--color-text-secondary)]">
       <h2 class="mb-2 text-xl font-semibold text-[var(--color-text-primary)]">Welcome to Jujuwe</h2>
       <p>Enter a repository path above to get started</p>
+    </div>
+  {/if}
+
+  {#if showKeyboardHints}
+    <div 
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onclick={closeKeyboardHints}
+      onkeydown={(e) => e.key === 'Escape' && closeKeyboardHints()}
+      role="dialog"
+      tabindex="-1"
+    >
+      <div 
+        class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={() => {}}
+        role="dialog"
+        tabindex="-1"
+      >
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Keyboard Shortcuts</h2>
+          <button 
+            onclick={closeKeyboardHints}
+            class="p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+        
+        <div class="p-4">
+          <div class="mb-4">
+            <h3 class="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">General</h3>
+            <div class="space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="text-sm text-[var(--color-text-primary)]">Show keyboard shortcuts</span>
+                <kbd class="px-2 py-1 text-xs bg-gray-100 border border-gray-200 rounded font-mono">?</kbd>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-sm text-[var(--color-text-primary)]">Open repository</span>
+                <kbd class="px-2 py-1 text-xs bg-gray-100 border border-gray-200 rounded font-mono">Enter</kbd>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-sm text-[var(--color-text-primary)]">Refresh all data</span>
+                <kbd class="px-2 py-1 text-xs bg-gray-100 border border-gray-200 rounded font-mono">Ctrl+R</kbd>
+              </div>
+            </div>
+          </div>
+          
+          {#if hasRepo}
+          <div class="mb-4">
+            <h3 class="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">Files</h3>
+            <div class="space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="text-sm text-[var(--color-text-primary)]">Stage all files</span>
+                <kbd class="px-2 py-1 text-xs bg-gray-100 border border-gray-200 rounded font-mono">Ctrl+Shift+S</kbd>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-sm text-[var(--color-text-primary)]">Unstage all files</span>
+                <kbd class="px-2 py-1 text-xs bg-gray-100 border border-gray-200 rounded font-mono">Ctrl+Shift+U</kbd>
+              </div>
+            </div>
+          </div>
+          
+          <div>
+            <h3 class="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">Commit</h3>
+            <div class="space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="text-sm text-[var(--color-text-primary)]">Create commit</span>
+                <kbd class="px-2 py-1 text-xs bg-gray-100 border border-gray-200 rounded font-mono">Ctrl+Enter</kbd>
+              </div>
+            </div>
+          </div>
+          {/if}
+        </div>
+        
+        <div class="px-4 py-3 bg-gray-50 border-t border-gray-200">
+          <p class="text-xs text-[var(--color-text-secondary)]">Press <kbd class="px-1 py-0.5 text-xs bg-gray-200 rounded">Esc</kbd> to close</p>
+        </div>
+      </div>
     </div>
   {/if}
 </div>
