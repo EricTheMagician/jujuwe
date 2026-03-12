@@ -247,6 +247,23 @@ export async function mergeBranches(path: string, branch1CommitId: string, branc
   }
 }
 
+export async function splitCommit(path: string, commitId: string, filesToSplit: string[]): Promise<CommitInfo[] | null> {
+  isLoading.set(true);
+  error.set(null);
+  
+  try {
+    const result = await api.splitCommit(path, commitId, filesToSplit);
+    await refreshCommits(path);
+    await refreshBranches(path);
+    return result;
+  } catch (e) {
+    error.set(e instanceof Error ? e.message : String(e));
+    return null;
+  } finally {
+    isLoading.set(false);
+  }
+}
+
 export function stageFile(filePath: string): void {
   stagedFiles.update(files => {
     const newSet = new Set(files);

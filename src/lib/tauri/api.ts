@@ -76,6 +76,10 @@ export async function mergeBranches(path: string, branch1CommitId: string, branc
   return invoke<CommitInfo>('merge_branches_cmd', { path, branch1CommitId, branch2CommitId });
 }
 
+export async function splitCommit(path: string, commitId: string, filesToSplit: string[]): Promise<CommitInfo[]> {
+  return invoke<CommitInfo[]>('split_commit_cmd', { path, commitId, filesToSplit });
+}
+
 export async function getDiff(path: string): Promise<DiffInfo> {
   return invoke<DiffInfo>('get_diff', { path });
 }

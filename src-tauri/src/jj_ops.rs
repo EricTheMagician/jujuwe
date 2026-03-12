@@ -5,6 +5,7 @@ use jj_lib::rewrite;
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, Workspace, WorkspaceLoadError};
 use jj_lib::repo::{StoreFactories, Repo};
+use jj_lib::tree_builder::TreeBuilder;
 use serde::Serialize;
 use std::path::Path;
 use thiserror::Error;
@@ -916,4 +917,136 @@ pub fn merge_branches(workspace_path: &Path, branch1_commit_id: String, branch2_
         author: merge_commit.author().name.clone(),
         timestamp: merge_commit.committer().timestamp.timestamp.0,
     })
+}
+
+pub fn split_commit(workspace_path: &Path, commit_id: String, files_to_split: Vec<String>) -> JjResult<Vec<CommitInfo>> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let hex_to_commit_id = |hex: &str| -> Result<CommitId, JjError> {
+        let bytes = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i+2], 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|e| JjError::Other(format!("Invalid hex: {}", e)))?;
+        Ok(CommitId::from_bytes(&bytes))
+    };
+    
+    let commit_id = hex_to_commit_id(&commit_id)?;
+    
+    let result = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        let repo = repo_loader.load_at_head().await.unwrap();
+        
+        let store = repo.store();
+        
+        let commit = store.get_commit(&commit_id)
+            .map_err(|e| JjError::Other(format!("Failed to get commit: {}", e)))?;
+        
+        let original_tree = commit.tree();
+        let parent_ids: Vec<_> = commit.parent_ids().iter().cloned().collect();
+        let author = commit.author().clone();
+        let committer = commit.committer().clone();
+        let description = commit.description().to_string();
+        
+        let mut tx = repo.start_transaction();
+        let tx_repo = tx.repo_mut();
+        
+        let store = tx_repo.store().clone();
+        let empty_tree_id = store.empty_tree_id().clone();
+        
+        let mut split_tree_builder = TreeBuilder::new(store.clone(), empty_tree_id.clone());
+        let mut remaining_tree_builder = TreeBuilder::new(store.clone(), empty_tree_id.clone());
+        
+        for (path, value) in original_tree.entries() {
+            let path_str = format!("{:?}", path);
+            if files_to_split.contains(&path_str) {
+                if let Some(Some(tree_value)) = value.into_iter().flatten().next() {
+                    split_tree_builder.set(path.clone(), tree_value);
+                }
+            } else {
+                if let Some(Some(tree_value)) = value.into_iter().flatten().next() {
+                    remaining_tree_builder.set(path.clone(), tree_value);
+                }
+            }
+        }
+        
+        let split_tree_id = split_tree_builder.write_tree()
+            .map_err(|e| JjError::Other(format!("Failed to write split tree: {}", e)))?;
+        let remaining_tree_id = remaining_tree_builder.write_tree()
+            .map_err(|e| JjError::Other(format!("Failed to write remaining tree: {}", e)))?;
+        
+        let split_merged_tree = jj_lib::merged_tree::MergedTree::resolved(
+            store.clone(),
+            split_tree_id,
+        );
+        let remaining_merged_tree = jj_lib::merged_tree::MergedTree::resolved(
+            store.clone(),
+            remaining_tree_id,
+        );
+        
+        let mut split_commit_builder = tx_repo.new_commit(
+            parent_ids.clone(),
+            split_merged_tree,
+        ).detach();
+        
+        split_commit_builder.set_author(author.clone());
+        split_commit_builder.set_committer(committer.clone());
+        split_commit_builder.set_description(&format!("{}.split ({} files)", description, files_to_split.len()));
+        
+        let split_commit = split_commit_builder.write(tx_repo).await
+            .map_err(|e| JjError::Other(format!("Failed to write split commit: {}", e)))?;
+        
+        let mut remaining_commit_builder = tx_repo.new_commit(
+            parent_ids.clone(),
+            remaining_merged_tree,
+        ).detach();
+        
+        remaining_commit_builder.set_author(author.clone());
+        remaining_commit_builder.set_committer(committer);
+        remaining_commit_builder.set_description(&format!("{}.remaining", description));
+        
+        let remaining_commit = remaining_commit_builder.write(tx_repo).await
+            .map_err(|e| JjError::Other(format!("Failed to write remaining commit: {}", e)))?;
+        
+        tx.commit(&format!("Split commit into 2: {} files to split", files_to_split.len()))
+            .await
+            .map_err(|e| JjError::Other(format!("Failed to commit split: {}", e)))?;
+        
+        Ok::<_, JjError>((split_commit, remaining_commit))
+    })?;
+    
+    let (split_commit, remaining_commit) = result;
+    
+    Ok(vec![
+        CommitInfo {
+            change_id: split_commit.change_id().hex(),
+            commit_id: split_commit.id().hex(),
+            description: split_commit.description().to_string(),
+            author: split_commit.author().name.clone(),
+            timestamp: split_commit.committer().timestamp.timestamp.0,
+        },
+        CommitInfo {
+            change_id: remaining_commit.change_id().hex(),
+            commit_id: remaining_commit.id().hex(),
+            description: remaining_commit.description().to_string(),
+            author: remaining_commit.author().name.clone(),
+            timestamp: remaining_commit.committer().timestamp.timestamp.0,
+        },
+    ])
 }
