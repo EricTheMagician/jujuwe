@@ -5,6 +5,7 @@
   import BranchSelector from '$lib/components/BranchSelector.svelte';
   import ChangedFiles from '$lib/components/ChangedFiles.svelte';
   import DiffViewer from '$lib/components/DiffViewer.svelte';
+  import CommitHistory from '$lib/components/CommitHistory.svelte';
 
   let path = $state('');
   let isOpening = $state(false);
@@ -73,6 +74,9 @@
         </div>
         <div class="diff-panel">
           <DiffViewer />
+        </div>
+        <div class="history-panel">
+          <CommitHistory />
         </div>
       </main>
     </div>
@@ -217,6 +221,14 @@
     padding: 12px;
     background: var(--bg-secondary, #f5f5f5);
     border-bottom: 1px solid var(--border-color, #ddd);
+  }
+
+  .history-panel {
+    padding: 12px;
+    background: var(--bg-secondary, #f5f5f5);
+    border-top: 1px solid var(--border-color, #ddd);
+    max-height: 200px;
+    overflow-y: auto;
   }
 
   .welcome {
