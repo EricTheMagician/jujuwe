@@ -1,4 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
+import { browser } from '$app/environment';
 import type { BranchInfo, CommitInfo, RepoInfo, DiffInfo, FileContentDiff } from '$lib/tauri/api';
 import * as api from '$lib/tauri/api';
 import { startFileWatcher, stopFileWatcher, onFileChange } from '$lib/tauri/api';
@@ -32,6 +33,67 @@ export const selectedFile = writable<string | null>(null);
 
 export const selectedFileDiff = writable<FileContentDiff | null>(null);
 
+export const branchOrder = writable<Map<string, number>>(new Map());
+
+function getBranchOrderKey(repoPath: string): string {
+  return `jujuwe-branch-order-${repoPath}`;
+}
+
+export function loadBranchOrder(repoPath: string): void {
+  if (!browser) return;
+  
+  try {
+    const key = getBranchOrderKey(repoPath);
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      const parsed = JSON.parse(stored) as [string, number][];
+      branchOrder.set(new Map(parsed));
+    } else {
+      branchOrder.set(new Map());
+    }
+  } catch (e) {
+    console.error('Failed to load branch order:', e);
+    branchOrder.set(new Map());
+  }
+}
+
+export function saveBranchOrder(repoPath: string, order: Map<string, number>): void {
+  if (!browser) return;
+  
+  try {
+    const key = getBranchOrderKey(repoPath);
+    const entries = Array.from(order.entries());
+    localStorage.setItem(key, JSON.stringify(entries));
+  } catch (e) {
+    console.error('Failed to save branch order:', e);
+  }
+}
+
+export function setBranchOrder(repoPath: string, branchNames: string[]): void {
+  const newOrder = new Map<string, number>();
+  branchNames.forEach((name, index) => {
+    newOrder.set(name, index);
+  });
+  branchOrder.set(newOrder);
+  saveBranchOrder(repoPath, newOrder);
+}
+
+export const sortedBranches = derived(
+  [branches, branchOrder],
+  ([$branches, $branchOrder]) => {
+    const ordered = $branches.filter(b => $branchOrder.has(b.name));
+    const unordered = $branches.filter(b => !$branchOrder.has(b.name));
+    
+    ordered.sort((a, b) => {
+      const orderA = $branchOrder.get(a.name) ?? Infinity;
+      const orderB = $branchOrder.get(b.name) ?? Infinity;
+      return orderA - orderB;
+    });
+    
+    return [...ordered, ...unordered];
+  }
+);
+
 export async function selectFileForDiff(filePath: string): Promise<void> {
   selectedFile.set(filePath);
   const diff = await getFileDiffContent(filePath);
@@ -51,6 +113,8 @@ export async function openRepository(path: string): Promise<void> {
     const root = await api.openWorkspace(path);
     currentWorkspace.set(root);
     repoPath.set(path);
+    
+    loadBranchOrder(path);
     
     const info = await api.getRepoInfo(path);
     repoInfo.set(info);

@@ -1,8 +1,44 @@
 <script lang="ts">
-  import { branches, activeBranch, refreshBranches, repoPath } from '$lib/stores/repo';
+  import { branches, sortedBranches, activeBranch, refreshBranches, repoPath, setBranchOrder } from '$lib/stores/repo';
   import type { BranchInfo } from '$lib/tauri/api';
 
   let { onBranchSelect }: { onBranchSelect?: (branch: BranchInfo) => void } = $props();
+
+  let draggedIndex: number | null = $state(null);
+  let dragOverIndex: number | null = $state(null);
+
+  let localBranches = $state<BranchInfo[]>([]);
+
+  function handleDragStart(index: number) {
+    draggedIndex = index;
+    localBranches = [...$sortedBranches];
+  }
+
+  function handleDragEnd() {
+    const path = $repoPath;
+    if (draggedIndex !== null && dragOverIndex !== null && draggedIndex !== dragOverIndex && path) {
+      const newOrder = [...localBranches];
+      const [removed] = newOrder.splice(draggedIndex, 1);
+      newOrder.splice(dragOverIndex, 0, removed);
+      setBranchOrder(path, newOrder.map(b => b.name));
+    }
+    draggedIndex = null;
+    dragOverIndex = null;
+    localBranches = [];
+  }
+
+  function handleDragOver(e: DragEvent, index: number) {
+    e.preventDefault();
+    dragOverIndex = index;
+  }
+
+  function handleDragLeave() {
+    dragOverIndex = null;
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+  }
 
   async function selectBranch(branch: BranchInfo) {
     activeBranch.set(branch.name);
@@ -31,12 +67,20 @@
   </div>
   
   <ul class="list-none p-0 m-0">
-    {#each $branches as branch}
+    {#each $sortedBranches as branch, index}
       <li>
         <button 
           class="flex items-center gap-2 w-full px-3 py-2 rounded-md border-none bg-transparent cursor-pointer text-left text-[var(--color-text-primary)] text-[13px] transition-colors hover:bg-[var(--color-bg-hover)]"
           class:bg-[var(--color-accent-light)]={$activeBranch === branch.name}
           class:text-[var(--color-accent)]={$activeBranch === branch.name}
+          class:dragging={draggedIndex === index}
+          class:drag-over={dragOverIndex === index}
+          draggable="true"
+          ondragstart={() => handleDragStart(index)}
+          ondragend={handleDragEnd}
+          ondragover={(e) => handleDragOver(e, index)}
+          ondragleave={handleDragLeave}
+          ondrop={handleDrop}
           onclick={() => selectBranch(branch)}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -58,3 +102,18 @@
     <p class="text-center text-[var(--color-text-muted)] text-sm py-5">No branches found</p>
   {/if}
 </div>
+
+<style>
+  button {
+    cursor: grab;
+  }
+  
+  button.dragging {
+    opacity: 0.5;
+  }
+  
+  button.drag-over {
+    border-left: 3px solid var(--color-accent);
+    background-color: var(--color-bg-hover);
+  }
+</style>
