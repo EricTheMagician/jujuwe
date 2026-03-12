@@ -28,4 +28,6 @@ pollster = "0.4.0"
 futures = "0.3"
 futures-lite = "2"
 futures-util = "0.3"
+notify = { version = "8.2.0", features = ["macos_kqueue"] }
+tokio = { version = "1.50.0", features = ["rt-multi-thread", "macros", "sync"] }
 
