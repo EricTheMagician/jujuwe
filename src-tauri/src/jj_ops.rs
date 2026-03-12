@@ -754,3 +754,84 @@ pub fn rebase_commit(workspace_path: &Path, commit_id: String, destination_commi
         timestamp: rebased_commit.committer().timestamp.timestamp.0,
     })
 }
+
+pub fn reorder_commits(workspace_path: &Path, commit_ids: Vec<String>, destination_commit_id: String) -> JjResult<Vec<CommitInfo>> {
+    let workspace_path = workspace_path
+        .canonicalize()
+        .map_err(|e| JjError::Path(e.to_string()))?;
+    
+    let config = jj_lib::config::StackedConfig::with_defaults();
+    let user_settings = UserSettings::from_config(config)
+        .map_err(|e| JjError::Other(format!("Settings error: {}", e)))?;
+    
+    let store_factories = StoreFactories::default();
+    let working_copy_factories = default_working_copy_factories();
+    
+    let workspace = Workspace::load(
+        &user_settings,
+        &workspace_path,
+        &store_factories,
+        &working_copy_factories,
+    ).map_err(JjError::WorkspaceLoad)?;
+    
+    let repo = pollster::block_on(async {
+        let repo_loader = workspace.repo_loader();
+        repo_loader.load_at_head().await.unwrap()
+    });
+    
+    let store = repo.store();
+    
+    fn hex_to_commit_id(hex: &str) -> Result<CommitId, JjError> {
+        let bytes = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i+2], 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|e| JjError::Other(format!("Invalid hex: {}", e)))?;
+        Ok(CommitId::from_bytes(&bytes))
+    }
+    
+    let dest_commit_id = hex_to_commit_id(&destination_commit_id)?;
+    let dest_commit = store.get_commit(&dest_commit_id)
+        .map_err(|e| JjError::Other(format!("Failed to get destination commit: {}", e)))?;
+    
+    let mut rebased_commits: Vec<CommitInfo> = Vec::new();
+    let mut current_destination = dest_commit;
+    
+    for commit_hex in commit_ids {
+        let commit_id = hex_to_commit_id(&commit_hex)?;
+        let commit = store.get_commit(&commit_id)
+            .map_err(|e| JjError::Other(format!("Failed to get commit to reorder: {}", e)))?;
+        
+        let new_parents = vec![current_destination.id().clone()];
+        
+        let rebased = pollster::block_on(async {
+            let repo_loader = workspace.repo_loader();
+            let repo = repo_loader.load_at_head().await.unwrap();
+            
+            let mut tx = repo.start_transaction();
+            let tx_repo = tx.repo_mut();
+            
+            let rebased = rewrite::rebase_commit(tx_repo, commit, new_parents)
+                .await
+                .map_err(|e| JjError::Other(format!("Failed to reorder commit: {}", e)))?;
+            
+            tx.commit(&format!("Reorder commit {} onto {}", commit_hex, current_destination.id().hex()))
+                .await
+                .map_err(|e| JjError::Other(format!("Failed to commit reorder: {}", e)))?;
+            
+            Ok::<_, JjError>(rebased)
+        })?;
+        
+        rebased_commits.push(CommitInfo {
+            change_id: rebased.change_id().hex(),
+            commit_id: rebased.id().hex(),
+            description: rebased.description().to_string(),
+            author: rebased.author().name.clone(),
+            timestamp: rebased.committer().timestamp.timestamp.0,
+        });
+        
+        current_destination = rebased;
+    }
+    
+    Ok(rebased_commits)
+}

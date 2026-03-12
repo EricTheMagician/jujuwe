@@ -213,6 +213,23 @@ export async function rebaseCommit(path: string, commitId: string, destinationCo
   }
 }
 
+export async function reorderCommits(path: string, commitIds: string[], destinationCommitId: string): Promise<CommitInfo[] | null> {
+  isLoading.set(true);
+  error.set(null);
+  
+  try {
+    const result = await api.reorderCommits(path, commitIds, destinationCommitId);
+    await refreshCommits(path);
+    await refreshBranches(path);
+    return result;
+  } catch (e) {
+    error.set(e instanceof Error ? e.message : String(e));
+    return null;
+  } finally {
+    isLoading.set(false);
+  }
+}
+
 export function stageFile(filePath: string): void {
   stagedFiles.update(files => {
     const newSet = new Set(files);

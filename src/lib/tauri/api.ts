@@ -68,6 +68,10 @@ export async function rebaseCommit(path: string, commitId: string, destinationCo
   return invoke<CommitInfo>('rebase_commit_cmd', { path, commitId, destinationCommitId });
 }
 
+export async function reorderCommits(path: string, commitIds: string[], destinationCommitId: string): Promise<CommitInfo[]> {
+  return invoke<CommitInfo[]>('reorder_commits_cmd', { path, commitIds, destinationCommitId });
+}
+
 export async function getDiff(path: string): Promise<DiffInfo> {
   return invoke<DiffInfo>('get_diff', { path });
 }
